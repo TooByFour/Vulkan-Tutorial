@@ -1,4 +1,5 @@
 #include <memory>
+#include <ranges>
 #if defined(__INTELLISENSE__) || !defined(USE_CPP20_MODULES)
 #	include <vulkan/vulkan_raii.hpp>
 #else
@@ -26,6 +27,8 @@ class HelloTriangleApplication
 
   private:
 	GLFWwindow *window = nullptr;
+	vk::raii::Context context;
+	vk::raii::Instance instance = nullptr;
 
 	void initWindow()
 	{
@@ -37,8 +40,40 @@ class HelloTriangleApplication
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
 
+	void createInstance()
+	{
+        vk::ApplicationInfo appInfo;
+        appInfo.pApplicationName = "Hello Triangle";
+        appInfo.applicationVersion = VK_MAKE_VERSION(1,0,0);
+        appInfo.pEngineName = "No Engine";
+        appInfo.engineVersion = VK_MAKE_VERSION(1,0,0);
+        appInfo.apiVersion = vk::ApiVersion14;
+
+        uint32_t glfwExtensionCount = 0;
+        auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
+
+        auto extensionProperties = context.enumerateInstanceExtensionProperties();
+        for (uint32_t i = 0; i < glfwExtensionCount; ++i)
+        {
+            if (std::ranges::none_of(extensionProperties,
+                                    [glfwExtension = glfwExtensions[i]](auto const& extensionProperty)
+                                    { return strcmp(extensionProperty.extensionName, glfwExtension) == 0; }))
+            {
+                throw std::runtime_error("Required GLFW extension not supported: " + std::string(glfwExtensions[i]));
+            }
+        }
+
+        vk::InstanceCreateInfo createInfo;
+        createInfo.pApplicationInfo = &appInfo;
+        createInfo.enabledExtensionCount = glfwExtensionCount;
+        createInfo.ppEnabledExtensionNames = glfwExtensions;
+
+        instance = vk::raii::Instance(context, createInfo);
+	}
+
 	void initVulkan()
 	{
+	    createInstance();
 	}
 
 	void mainLoop()
