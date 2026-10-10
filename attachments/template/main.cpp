@@ -45,6 +45,7 @@ class HelloTriangleApplication
 	vk::raii::Context context;
 	vk::raii::Instance instance = nullptr;
 	vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
+	vk::raii::PhysicalDevice physicalDevice = nullptr;
 
 	void initWindow()
 	{
@@ -137,6 +138,46 @@ class HelloTriangleApplication
 	{
 	    createInstance();
 		setupDebugMessenger();
+		pickPhysicalDevice();
+	}
+
+	void pickPhysicalDevice()
+	{
+	    std::vector<vk::raii::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices();
+		auto const devIter = std::ranges::find_if( physicalDevices, [&]( auto const & physicalDevice ) { return isDeviceSuitable( physicalDevice );});
+		if (devIter == physicalDevices.end())
+		{
+		    throw std::runtime_error("failed to find a suitable GPU!");
+		}
+		physicalDevice = *devIter;
+		std::printf("Chose GPU \n");
+	}
+
+	bool isDeviceSuitable(vk::raii::PhysicalDevice const & physicalDevice)
+	{
+	    std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+
+	    auto deviceProperties = physicalDevice.getProperties();
+		auto deviceFeatures = physicalDevice.getFeatures();
+		auto queueFamilies = physicalDevice.getQueueFamilyProperties();
+		auto availableDeviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+		auto features = physicalDevice.template getFeatures2<vk::PhysicalDeviceFeatures2,
+		                                                        vk::PhysicalDeviceVulkan11Features,
+																vk::PhysicalDeviceVulkan13Features,
+																vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>();
+
+		bool supportsVulkan1_3 = physicalDevice.getProperties().apiVersion >= vk::ApiVersion13;
+		bool supportsGraphics = std::ranges::any_of(queueFamilies, [](auto const &qfp) { return !!(qfp.queueFlags & vk::QueueFlagBits::eGraphics); });
+		bool supportsAllRequiredExtensions = std::ranges::all_of(requiredDeviceExtension, [&availableDeviceExtensions](auto const & requiredDeviceExtension)
+		                                                        {
+																	return std::ranges::any_of( availableDeviceExtensions,
+																	                            [&requiredDeviceExtension]( auto const & availableDeviceExtension)
+																								{ return strcmp( availableDeviceExtension.extensionName, requiredDeviceExtension) == 0; } ); });
+		bool supportsRequiredFeatures = features.template get<vk::PhysicalDeviceVulkan11Features>().shaderDrawParameters &&
+		                                features.template get<vk::PhysicalDeviceVulkan13Features>().dynamicRendering &&
+										features.template get<vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>().extendedDynamicState;
+
+		return supportsVulkan1_3 && supportsGraphics && supportsAllRequiredExtensions && supportsRequiredFeatures;
 	}
 
 	void setupDebugMessenger()
