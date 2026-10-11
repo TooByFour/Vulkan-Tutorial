@@ -46,6 +46,8 @@ class HelloTriangleApplication
 	vk::raii::Instance instance = nullptr;
 	vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 	vk::raii::PhysicalDevice physicalDevice = nullptr;
+	vk::raii::Device device = nullptr;
+	vk::raii::Queue graphicsQueue = nullptr;
 
 	void initWindow()
 	{
@@ -139,6 +141,45 @@ class HelloTriangleApplication
 	    createInstance();
 		setupDebugMessenger();
 		pickPhysicalDevice();
+		createLogicalDevice();
+	}
+
+	void createLogicalDevice()
+	{
+	    std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
+
+		auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);});
+		assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
+
+		auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+
+		vk::StructureChain<vk::PhysicalDeviceFeatures2,
+		                    vk::PhysicalDeviceVulkan11Features,
+							vk::PhysicalDeviceVulkan13Features,
+							vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT>
+                featureChain = {
+                    {},
+                    {.shaderDrawParameters = true},
+                    {.dynamicRendering = true},
+                    {.extendedDynamicState = true}
+                };
+
+        std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
+
+        float queuePriority = 0.5f;
+        vk::DeviceQueueCreateInfo deviceQueueCreateInfo;
+		deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+		deviceQueueCreateInfo.queueCount = 1;
+		deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
+        vk::DeviceCreateInfo deviceCreateInfo;
+        deviceCreateInfo.pNext = &featureChain.get<vk::PhysicalDeviceFeatures2>();
+        deviceCreateInfo.queueCreateInfoCount = 1;
+        deviceCreateInfo.pQueueCreateInfos = &deviceQueueCreateInfo;
+        deviceCreateInfo.enabledExtensionCount = static_cast<uint32_t>(requiredDeviceExtension.size());
+        deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
+
+        device = vk::raii::Device(physicalDevice, deviceCreateInfo);
+        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
 	}
 
 	void pickPhysicalDevice()
@@ -150,7 +191,6 @@ class HelloTriangleApplication
 		    throw std::runtime_error("failed to find a suitable GPU!");
 		}
 		physicalDevice = *devIter;
-		std::printf("Chose GPU \n");
 	}
 
 	bool isDeviceSuitable(vk::raii::PhysicalDevice const & physicalDevice)
