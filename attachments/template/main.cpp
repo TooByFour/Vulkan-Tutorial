@@ -35,6 +35,7 @@ class HelloTriangleApplication
 	void run()
 	{
 		initWindow();
+		createSurface();
 		initVulkan();
 		mainLoop();
 		cleanup();
@@ -47,7 +48,10 @@ class HelloTriangleApplication
 	vk::raii::DebugUtilsMessengerEXT debugMessenger = nullptr;
 	vk::raii::PhysicalDevice physicalDevice = nullptr;
 	vk::raii::Device device = nullptr;
-	vk::raii::Queue graphicsQueue = nullptr;
+	vk::raii::Queue queue = nullptr;
+	vk::raii::SurfaceKHR surface = nullptr;
+
+	std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
 	void initWindow()
 	{
@@ -59,6 +63,17 @@ class HelloTriangleApplication
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	}
 
+	void createSurface()
+	{
+	    // VkSurfaceKHR is a C API object and we have to promote it to the C++ wrapper
+		// hence the _ and the raii wrapping at the end.
+	    VkSurfaceKHR _surface;
+		if (glfwCreateWindowSurface(*instance, window, nullptr, &_surface))
+    	{
+        	throw std::runtime_error("failed to create window surface!");
+    	}
+		surface = vk::raii::SurfaceKHR(instance, _surface);
+	}
 	void createInstance()
 	{
         vk::ApplicationInfo appInfo;
@@ -148,10 +163,20 @@ class HelloTriangleApplication
 	{
 	    std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 
-		auto graphicsQueueFamilyProperty = std::ranges::find_if(queueFamilyProperties, [](auto const &qfp) { return (qfp.queueFlags & vk::QueueFlagBits::eGraphics) != static_cast<vk::QueueFlags>(0);});
-		assert(graphicsQueueFamilyProperty != queueFamilyProperties.end() && "No graphics queue family found!");
-
-		auto graphicsIndex = static_cast<uint32_t>(std::distance(queueFamilyProperties.begin(), graphicsQueueFamilyProperty));
+		uint32_t queueIndex = ~0;
+		for (uint32_t qfpIndex = 0; qfpIndex < queueFamilyProperties.size(); qfpIndex++)
+		{
+		    if ((queueFamilyProperties[qfpIndex].queueFlags & vk::QueueFlagBits::eGraphics) &&
+						physicalDevice.getSurfaceSupportKHR(qfpIndex, *surface))
+				{
+				    queueIndex = qfpIndex;
+								break;
+				}
+		}
+		if (queueIndex == ~0)
+		{
+		    throw std::runtime_error("Could not find a queue for graphics and present -> terminating");
+		}
 
 		vk::StructureChain<vk::PhysicalDeviceFeatures2,
 		                    vk::PhysicalDeviceVulkan11Features,
@@ -164,11 +189,10 @@ class HelloTriangleApplication
                     {.extendedDynamicState = true}
                 };
 
-        std::vector<const char*> requiredDeviceExtension = {vk::KHRSwapchainExtensionName};
 
         float queuePriority = 0.5f;
         vk::DeviceQueueCreateInfo deviceQueueCreateInfo;
-		deviceQueueCreateInfo.queueFamilyIndex = graphicsIndex;
+		deviceQueueCreateInfo.queueFamilyIndex = queueIndex;
 		deviceQueueCreateInfo.queueCount = 1;
 		deviceQueueCreateInfo.pQueuePriorities = &queuePriority;
         vk::DeviceCreateInfo deviceCreateInfo;
@@ -179,7 +203,7 @@ class HelloTriangleApplication
         deviceCreateInfo.ppEnabledExtensionNames = requiredDeviceExtension.data();
 
         device = vk::raii::Device(physicalDevice, deviceCreateInfo);
-        graphicsQueue = vk::raii::Queue(device, graphicsIndex, 0);
+        queue = vk::raii::Queue(device, queueIndex, 0);
 	}
 
 	void pickPhysicalDevice()
